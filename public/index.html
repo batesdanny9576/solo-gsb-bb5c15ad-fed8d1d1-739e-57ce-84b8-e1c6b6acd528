@@ -22,6 +22,7 @@
         <button id="btn-batch" class="btn">🧪 批量交接预演</button>
         <button id="btn-inventory" class="btn btn-accent">🔍 现场盘点</button>
         <button id="btn-responsibility" class="btn">📋 人员交接责任单</button>
+        <button id="btn-appearance" class="btn">🎭 出场时段核对</button>
         <button id="btn-reverify" class="btn" title="重新读取记录并按时间重放">↻ 重新核验</button>
       </div>
     </div>
@@ -82,6 +83,27 @@
         </table>
       </div>
       <div id="resp-undeterminable" class="resp-und"></div>
+    </section>
+
+    <!-- 出场时段到位核对结果（提交后即时展示，不保存、不改写交接记录） -->
+    <section id="appearance-panel" class="panel panel-appearance hidden">
+      <div class="panel-head appearance-head">
+        <h2>🎭 出场时段到位核对结果 · <span id="app-count">-</span> 行（区间左闭右开）</h2>
+        <button type="button" class="btn btn-sm" id="btn-app-close" title="关闭核对结果">✕ 关闭</button>
+      </div>
+      <div class="inv-summary" id="app-summary"></div>
+      <div id="app-banner-ok" class="banner banner-ok hidden">全部出场行核对到位。</div>
+      <div class="table-wrap">
+        <table class="table" id="app-table">
+          <thead>
+            <tr>
+              <th class="col-rowno">#</th><th>道具名称</th><th>出场演员</th><th>区间（左闭右开）</th>
+              <th>结论分钟</th><th>实际持有人</th><th>结论</th><th>说明</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <div class="grid">
@@ -261,6 +283,30 @@
       <div class="dialog-actions">
         <button type="button" class="btn" data-close>取消</button>
         <button type="submit" class="btn btn-primary" id="resp-submit">查询责任单</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 出场时段到位核对弹窗 -->
+  <dialog id="appearance-dialog" class="dialog dialog-xwide">
+    <form method="dialog" id="appearance-form">
+      <h3>出场时段到位核对</h3>
+      <p class="dialog-tip">
+        逐行填写<strong>道具、出场演员、起始 / 结束分钟</strong>，区间<strong>左闭右开 [起始, 结束)</strong>：
+        起点与区间内每个交接分钟均在<strong>该分钟全部交接完成后</strong>判定持有人，<strong>终点分钟的交接不计入</strong>。
+        按时间顺序取首个不符（返回分钟、实际持有人与导致该状态的交接记录）或链冲突（无法判定、给出冲突分钟，
+        冲突后的记录不作为确定持有）；整个区间持有人均为该演员才标为到位，区间结束后的冲突不影响结果。
+        核对只读，不会改写任何交接记录。
+      </p>
+      <div class="inv-rows-bar">
+        <span class="inv-rows-title">出场行</span>
+        <button type="button" class="btn btn-sm" id="btn-app-addrow">＋ 添加一行</button>
+        <button type="button" class="btn btn-sm" id="btn-app-fillprops">按已登记道具补齐</button>
+      </div>
+      <div id="app-rows" class="app-rows"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="submit" class="btn btn-primary" id="app-submit">开始核对</button>
       </div>
     </form>
   </dialog>

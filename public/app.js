@@ -73,6 +73,19 @@ const els = {
   respTableBody: document.querySelector('#resp-table tbody'),
   respUnd: $('#resp-undeterminable'),
   btnRespClose: $('#btn-resp-close'),
+  // 出场时段到位核对
+  btnAppearance: $('#btn-appearance'),
+  appDialog: $('#appearance-dialog'),
+  appForm: $('#appearance-form'),
+  appRows: $('#app-rows'),
+  btnAppAddRow: $('#btn-app-addrow'),
+  btnAppFillProps: $('#btn-app-fillprops'),
+  appPanel: $('#appearance-panel'),
+  appCount: $('#app-count'),
+  appSummary: $('#app-summary'),
+  appBannerOk: $('#app-banner-ok'),
+  appTableBody: document.querySelector('#app-table tbody'),
+  btnAppClose: $('#btn-app-close'),
 };
 
 const STATUS_TEXT = {
@@ -420,6 +433,41 @@ function bindEvents() {
   });
   els.btnRespClose.addEventListener('click', () => els.respPanel.classList.add('hidden'));
 
+  // 出场时段到位核对
+  els.btnAppearance.addEventListener('click', openAppearanceDialog);
+  els.btnAppAddRow.addEventListener('click', () => {
+    els.appRows.insertAdjacentHTML('beforeend', appRowHtml());
+    renumberAppRows();
+    els.appRows.querySelector('.app-row:last-child .app-name').focus();
+  });
+  els.btnAppFillProps.addEventListener('click', () => {
+    // 以已登记道具为准补齐：保留已填写的行，再追加尚未出现的道具行（演员与分钟留空待填）
+    const filled = collectAppRows();
+    const usedNames = new Set(filled.map((r) => r.name));
+    const extra = state.props
+      .filter((p) => !usedNames.has(p.name))
+      .map((p) => appRowHtml(p.name, '', '', ''));
+    els.appRows.innerHTML =
+      filled.map((r) => appRowHtml(r.name, r.actor, r.startMinute, r.endMinute)).join('') +
+      extra.join('');
+    if (els.appRows.children.length === 0) resetAppRows();
+  });
+  els.appRows.addEventListener('click', (e) => {
+    const del = e.target.closest?.('.app-del');
+    if (!del) return;
+    if (els.appRows.children.length <= 1) {
+      toast('至少保留一行；要放弃核对请点「取消」', true);
+      return;
+    }
+    del.closest('.app-row').remove();
+    renumberAppRows();
+  });
+  els.appForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitAppearance();
+  });
+  els.btnAppClose.addEventListener('click', () => els.appPanel.classList.add('hidden'));
+
   // 批量交接预演
   els.btnBatch.addEventListener('click', openBatchDialog);
   els.btnBatchAddRow.addEventListener('click', () => {
@@ -515,7 +563,7 @@ function bindEvents() {
       return;
     }
     const conflictLink = t.closest?.('[data-record-id]');
-    if (conflictLink && (t.closest('.conflict-box') || t.closest('#resp-panel'))) {
+    if (conflictLink && (t.closest('.conflict-box') || t.closest('#resp-panel') || t.closest('#appearance-panel'))) {
       locateRecord(conflictLink.dataset.recordId);
     }
   });
@@ -935,6 +983,167 @@ async function submitResponsibility() {
     els.respDialog.close();
     renderRespResult(result);
     toast('责任单已生成（结果仅本次有效，未改动交接记录）');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+/* ==================== 出场时段到位核对 ==================== */
+
+const APP_STATUS_TEXT = {
+  IN_POSITION: { cls: 'inv-ok', text: '✓ 到位' },
+  MISMATCH: { cls: 'inv-bad', text: '✕ 未到位（持有人不符）' },
+  CONFLICT: { cls: 'inv-bad', text: '？ 无法判定（链冲突）' },
+  UNREGISTERED: { cls: 'inv-warn', text: '账外' },
+};
+
+function appRowHtml(name = '', actor = '', start = '', end = '') {
+  const val = (v) => (v === '' || v == null ? '' : `value="${esc(v)}"`);
+  return `
+    <div class="app-row">
+      <span class="app-row-no"></span>
+      <input type="text" class="app-name" maxlength="40" placeholder="道具名称" list="prop-name-list" ${val(name)} />
+      <input type="text" class="app-actor" maxlength="30" list="people-list" placeholder="出场演员" ${val(actor)} />
+      <input type="number" class="app-start" min="0" step="1" placeholder="起始分" ${val(start)} />
+      <input type="number" class="app-end" min="0" step="1" placeholder="结束分（不含）" ${val(end)} />
+      <button type="button" class="btn btn-sm btn-danger app-del" title="删除此行">✕</button>
+    </div>`;
+}
+
+function resetAppRows() {
+  els.appRows.innerHTML = [appRowHtml(), appRowHtml(), appRowHtml()].join('');
+  renumberAppRows();
+}
+
+function renumberAppRows() {
+  [...els.appRows.querySelectorAll('.app-row')].forEach((row, i) => {
+    row.querySelector('.app-row-no').textContent = i + 1;
+  });
+}
+
+function openAppearanceDialog() {
+  resetAppRows();
+  els.appDialog.showModal();
+  els.appRows.querySelector('.app-name').focus();
+}
+
+function collectAppRows() {
+  return [...els.appRows.querySelectorAll('.app-row')]
+    .map((row) => ({
+      name: row.querySelector('.app-name').value.trim(),
+      actor: row.querySelector('.app-actor').value.trim(),
+      startMinute: row.querySelector('.app-start').value,
+      endMinute: row.querySelector('.app-end').value,
+    }))
+    .filter((r) => r.name || r.actor || r.startMinute !== '' || r.endMinute !== '');
+}
+
+function appMinuteCell(r) {
+  if (r.status === 'MISMATCH') {
+    return `第${r.minute}分${r.minute === r.startMinute ? '（起点）' : ''}`;
+  }
+  if (r.status === 'CONFLICT') {
+    return `第${r.conflict.minute}分`;
+  }
+  if (r.status === 'IN_POSITION') {
+    return `<span class="inv-dash">${r.checkpoints.length} 个核对点均相符</span>`;
+  }
+  return '<span class="inv-dash">—</span>';
+}
+
+function appCauseLinks(r) {
+  if (r.status === 'CONFLICT') {
+    const refs = r.conflict.recordRefs || [];
+    const links = refs.length
+      ? refs.map((x) => `<a data-record-id="${esc(x.id)}">记录 ${shortId(x.id)}</a>`).join('、')
+      : '<span class="inv-dash">—</span>';
+    return `<div style="margin-top:3px">定位记录：${links}</div>`;
+  }
+  if (r.status === 'MISMATCH' && r.causeRecord) {
+    return `<div style="margin-top:3px">导致该状态的交接：<a data-record-id="${esc(r.causeRecord.id)}">记录 ${shortId(r.causeRecord.id)}</a>（第${r.causeRecord.minute}分 ${esc(r.causeRecord.from)} → ${esc(r.causeRecord.to)}）</div>`;
+  }
+  return '';
+}
+
+function renderAppearanceResult(result) {
+  els.appCount.textContent = result.summary.total;
+
+  const s = result.summary;
+  const chips = [
+    [`共 ${s.total} 行`, ''],
+    [`到位 ${s.inPosition}`, 'chip-ok'],
+    [`未到位 ${s.mismatch}`, 'chip-bad'],
+    [`无法判定 ${s.conflict}`, 'chip-bad'],
+    [`账外 ${s.unregistered}`, 'chip-warn'],
+  ];
+  els.appSummary.innerHTML = chips
+    .map(([text, cls]) => `<span class="inv-chip ${cls}">${text}</span>`)
+    .join('');
+
+  els.appBannerOk.classList.toggle('hidden', !s.allInPosition);
+
+  // 按时间顺序取首个问题：不符 / 冲突排前（服务端已按行定位首个问题，这里按问题类型聚前）
+  const order = { MISMATCH: 0, CONFLICT: 1, UNREGISTERED: 2, IN_POSITION: 3 };
+  const rows = [...result.rows].sort(
+    (a, b) => order[a.status] - order[b.status] || a.rowNo - b.rowNo
+  );
+
+  els.appTableBody.innerHTML = rows.map((r) => {
+    const st = APP_STATUS_TEXT[r.status];
+    const dash = '<span class="inv-dash">—</span>';
+    const actualHolder = r.status === 'MISMATCH' ? esc(r.actualHolder) : dash;
+    return `
+      <tr class="inv-row-${r.status}">
+        <td class="cell-minute">${r.rowNo}</td>
+        <td><strong>${esc(r.name)}</strong></td>
+        <td>${esc(r.actor)}</td>
+        <td class="cell-minute">第${r.startMinute}分 ≤ t &lt; 第${r.endMinute}分</td>
+        <td class="cell-minute">${appMinuteCell(r)}</td>
+        <td>${actualHolder}</td>
+        <td><span class="inv-badge ${st.cls}">${st.text}</span></td>
+        <td class="inv-note">${esc(r.note)}${appCauseLinks(r)}</td>
+      </tr>`;
+  }).join('');
+
+  els.appPanel.classList.remove('hidden');
+  els.appPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function submitAppearance() {
+  const raw = collectAppRows();
+  if (raw.length === 0) {
+    toast('请至少填写一行出场核对记录（道具、演员、起止分钟）', true);
+    return;
+  }
+  const empty = raw.find((r) => !r.name || !r.actor || r.startMinute === '' || r.endMinute === '');
+  if (empty) {
+    toast('每行的道具名称、出场演员、起止分钟都必须填写；完全空白的行请删除', true);
+    return;
+  }
+  const rows = [];
+  for (const r of raw) {
+    const startMinute = Number(r.startMinute);
+    const endMinute = Number(r.endMinute);
+    if (!Number.isInteger(startMinute) || startMinute < 0 || !Number.isInteger(endMinute) || endMinute < 0) {
+      toast('起止分钟必须是不小于 0 的整数', true);
+      return;
+    }
+    if (startMinute >= endMinute) {
+      toast('起始分钟必须小于结束分钟（区间左闭右开，至少覆盖 1 分钟）', true);
+      return;
+    }
+    rows.push({ name: r.name, actor: r.actor, startMinute, endMinute });
+  }
+
+  try {
+    const result = await api('/api/appearance/check', {
+      method: 'POST',
+      body: JSON.stringify({ rows }),
+    });
+    els.appDialog.close();
+    renderAppearanceResult(result);
+    toast(result.summary.allInPosition ? '全部出场行核对到位（未改动交接记录）' : '核对完成（结果仅本次有效，未改动交接记录）',
+      !result.summary.allInPosition);
   } catch (err) {
     toast(err.message, true);
   }
