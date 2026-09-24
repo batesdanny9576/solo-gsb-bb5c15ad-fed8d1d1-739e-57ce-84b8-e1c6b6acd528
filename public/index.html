@@ -22,6 +22,7 @@
         <button id="btn-batch" class="btn">🧪 批量交接预演</button>
         <button id="btn-inventory" class="btn btn-accent">🔍 现场盘点</button>
         <button id="btn-responsibility" class="btn">📋 人员交接责任单</button>
+        <button id="btn-presence" class="btn">🎭 出场到位核对</button>
         <button id="btn-reverify" class="btn" title="重新读取记录并按时间重放">↻ 重新核验</button>
       </div>
     </div>
@@ -82,6 +83,26 @@
         </table>
       </div>
       <div id="resp-undeterminable" class="resp-und"></div>
+    </section>
+
+    <!-- 出场时段到位核对结果（提交后即时展示，只读、不改写交接记录） -->
+    <section id="presence-panel" class="panel panel-presence hidden">
+      <div class="panel-head presence-head">
+        <h2>🎭 出场时段到位核对结果</h2>
+        <button type="button" class="btn btn-sm" id="btn-pres-close" title="关闭核对结果">✕ 关闭</button>
+      </div>
+      <div class="inv-summary" id="pres-summary"></div>
+      <div id="pres-banner-ok" class="banner banner-ok hidden">全部到位：所有核对行在整个时段内均匹配。</div>
+      <div class="table-wrap">
+        <table class="table" id="pres-table">
+          <thead>
+            <tr>
+              <th class="col-rowno">#</th><th>道具</th><th>演员</th><th>时段（左闭右开）</th><th>结论</th><th>说明</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <div class="grid">
@@ -261,6 +282,28 @@
       <div class="dialog-actions">
         <button type="button" class="btn" data-close>取消</button>
         <button type="submit" class="btn btn-primary" id="resp-submit">查询责任单</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- 出场时段到位核对弹窗 -->
+  <dialog id="presence-dialog" class="dialog dialog-xwide">
+    <form method="dialog" id="presence-form">
+      <h3>出场时段到位核对</h3>
+      <p class="dialog-tip">
+        逐行填写<strong>道具、演员、起止分钟</strong>（区间<strong>左闭右开</strong>：含起始分钟、不含结束分钟），一次核对多行。
+        沿用同分钟唯一交接链规则，在起点及区间内每个交接分钟的<strong>全部交接完成后</strong>判定持有人，
+        终点分钟的交接不计入；按时间顺序取首个不符或链冲突，冲突后的记录不作为确定持有。
+        核对只读，不会改写任何交接记录。
+      </p>
+      <div class="inv-rows-bar">
+        <span class="inv-rows-title">核对行</span>
+        <button type="button" class="btn btn-sm" id="btn-pres-addrow">＋ 添加一行</button>
+      </div>
+      <div id="pres-rows" class="pres-rows"></div>
+      <div class="dialog-actions">
+        <button type="button" class="btn" data-close>取消</button>
+        <button type="submit" class="btn btn-primary" id="pres-submit">开始核对</button>
       </div>
     </form>
   </dialog>

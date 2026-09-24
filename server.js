@@ -8,6 +8,7 @@ const { verifyAll } = require('./src/verify');
 const { checkInventory } = require('./src/inventory');
 const { previewBatch, hashRows } = require('./src/batch');
 const { buildResponsibilitySheet } = require('./src/responsibility');
+const { checkPresence } = require('./src/presence');
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3000;
@@ -108,6 +109,42 @@ app.get('/api/responsibility', (req, res) => {
   // 纯读取 + 即时重放，不写入任何数据
   res.json(buildResponsibilitySheet(store.getData(), person, startMinute, endMinute));
 });
+
+/* ---------------- 出场时段到位核对（只读，即时结果，不改写交接记录） ---------------- */
+
+app.post('/api/presence/check', asyncRoute((req, res) => {
+  const body = req.body || {};
+
+  if (!Array.isArray(body.rows)) {
+    return badRequest(res, '核对行（rows）必须是数组');
+  }
+  if (body.rows.length === 0) {
+    return badRequest(res, '请至少填写一行核对记录');
+  }
+  if (body.rows.length > 500) {
+    return badRequest(res, '单次核对最多 500 行');
+  }
+
+  const rows = [];
+  for (let i = 0; i < body.rows.length; i += 1) {
+    const r = body.rows[i] || {};
+    try {
+      const prop = nonEmpty(r.prop, `第 ${i + 1} 行道具`);
+      const person = nonEmpty(r.person, `第 ${i + 1} 行演员`);
+      if (prop.length > 40) throw new Error(`第 ${i + 1} 行道具名称最长 40 个字符`);
+      if (person.length > 30) throw new Error(`第 ${i + 1} 行演员姓名最长 30 个字符`);
+      const start = parseMinute(r.start, `第 ${i + 1} 行起始分钟`);
+      const end = parseMinute(r.end, `第 ${i + 1} 行结束分钟`);
+      if (start >= end) throw new Error(`第 ${i + 1} 行起始分钟必须小于结束分钟（左闭右开区间）`);
+      rows.push({ prop, person, start, end });
+    } catch (err) {
+      return badRequest(res, err.message);
+    }
+  }
+
+  // 纯读取 + 即时重放，不写入任何数据
+  res.json(checkPresence(store.getData(), rows));
+}));
 
 /* ---------------- 道具 CRUD ---------------- */
 

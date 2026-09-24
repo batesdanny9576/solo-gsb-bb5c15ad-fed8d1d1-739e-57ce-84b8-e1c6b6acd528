@@ -398,6 +398,45 @@ main .btn:hover { background: var(--muted-bg); color: var(--ink); }
 .inv-holder { flex: 1 1 0; min-width: 0; }
 .inv-row .inv-del { flex: 0 0 auto; }
 
+/* ---------- 出场时段到位核对 ---------- */
+.panel-presence { margin-bottom: 16px; }
+.presence-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pres-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+  max-height: 300px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+.pres-row {
+  display: grid;
+  grid-template-columns: 24px 1.2fr 1fr 108px 108px auto;
+  gap: 6px;
+  align-items: center;
+}
+.pres-row input {
+  padding: 7px 8px;
+  border: 1px solid #cfd5de;
+  border-radius: 8px;
+  font-size: 13px;
+  font-family: inherit;
+  width: 100%;
+  min-width: 0;
+}
+.pres-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(29, 78, 137, 0.15);
+}
+.pres-row-no { text-align: center; color: var(--ink-soft); font-size: 12px; font-weight: 600; }
+.table tr.pres-row-MISMATCH { background: var(--error-bg); }
+.table tr.pres-row-MISMATCH:hover { background: #fae1df; }
+.table tr.pres-row-UNKNOWN { background: #fff4f3; }
+.table tr.pres-row-UNREGISTERED { background: var(--warn-bg); }
+#pres-table a { color: var(--accent); cursor: pointer; text-decoration: underline; }
+
 .hidden { display: none !important; }
 
 /* ---------- 人员交接责任单 ---------- */

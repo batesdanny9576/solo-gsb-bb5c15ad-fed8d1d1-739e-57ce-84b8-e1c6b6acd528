@@ -73,6 +73,17 @@ const els = {
   respTableBody: document.querySelector('#resp-table tbody'),
   respUnd: $('#resp-undeterminable'),
   btnRespClose: $('#btn-resp-close'),
+  // 出场时段到位核对
+  btnPresence: $('#btn-presence'),
+  presDialog: $('#presence-dialog'),
+  presForm: $('#presence-form'),
+  presRows: $('#pres-rows'),
+  btnPresAddRow: $('#btn-pres-addrow'),
+  presPanel: $('#presence-panel'),
+  presSummary: $('#pres-summary'),
+  presBannerOk: $('#pres-banner-ok'),
+  presTableBody: document.querySelector('#pres-table tbody'),
+  btnPresClose: $('#btn-pres-close'),
 };
 
 const STATUS_TEXT = {
@@ -420,6 +431,30 @@ function bindEvents() {
   });
   els.btnRespClose.addEventListener('click', () => els.respPanel.classList.add('hidden'));
 
+  // 出场时段到位核对
+  els.btnPresence.addEventListener('click', openPresenceDialog);
+  els.btnPresAddRow.addEventListener('click', () => {
+    els.presRows.insertAdjacentHTML('beforeend', presRowHtml());
+    renumberPresRows();
+    const rows = els.presRows.querySelectorAll('.pres-row');
+    rows[rows.length - 1].querySelector('.pres-prop').focus();
+  });
+  els.presRows.addEventListener('click', (e) => {
+    const del = e.target.closest?.('.pres-del');
+    if (!del) return;
+    if (els.presRows.querySelectorAll('.pres-row').length <= 1) {
+      toast('至少保留一行；要放弃核对请点「取消」', true);
+      return;
+    }
+    del.closest('.pres-row').remove();
+    renumberPresRows();
+  });
+  els.presForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitPresence();
+  });
+  els.btnPresClose.addEventListener('click', () => els.presPanel.classList.add('hidden'));
+
   // 批量交接预演
   els.btnBatch.addEventListener('click', openBatchDialog);
   els.btnBatchAddRow.addEventListener('click', () => {
@@ -515,7 +550,7 @@ function bindEvents() {
       return;
     }
     const conflictLink = t.closest?.('[data-record-id]');
-    if (conflictLink && (t.closest('.conflict-box') || t.closest('#resp-panel'))) {
+    if (conflictLink && (t.closest('.conflict-box') || t.closest('#resp-panel') || t.closest('#presence-panel'))) {
       locateRecord(conflictLink.dataset.recordId);
     }
   });
@@ -935,6 +970,138 @@ async function submitResponsibility() {
     els.respDialog.close();
     renderRespResult(result);
     toast('责任单已生成（结果仅本次有效，未改动交接记录）');
+  } catch (err) {
+    toast(err.message, true);
+  }
+}
+
+/* ==================== 出场时段到位核对 ==================== */
+
+const PRES_STATUS_TEXT = {
+  PRESENT: { cls: 'inv-ok', text: '✓ 到位' },
+  MISMATCH: { cls: 'inv-bad', text: '✕ 不符' },
+  UNKNOWN: { cls: 'inv-bad', text: '？ 无法判定' },
+  UNREGISTERED: { cls: 'inv-warn', text: '未登记' },
+};
+
+function presRowHtml() {
+  return `
+    <div class="pres-row">
+      <span class="pres-row-no"></span>
+      <input type="text" class="pres-prop" maxlength="40" placeholder="道具名称" list="prop-name-list" />
+      <input type="text" class="pres-person" maxlength="30" placeholder="演员" list="people-list" />
+      <input type="number" class="pres-start" min="0" step="1" placeholder="起始分(含)" title="起始分钟（含）" />
+      <input type="number" class="pres-end" min="0" step="1" placeholder="结束分(不含)" title="结束分钟（不含）" />
+      <button type="button" class="btn btn-sm btn-danger pres-del" title="删除此行">✕</button>
+    </div>`;
+}
+
+function renumberPresRows() {
+  [...els.presRows.querySelectorAll('.pres-row')].forEach((row, i) => {
+    row.querySelector('.pres-row-no').textContent = i + 1;
+  });
+}
+
+function openPresenceDialog() {
+  els.presRows.innerHTML = [presRowHtml(), presRowHtml(), presRowHtml()].join('');
+  renumberPresRows();
+  els.presDialog.showModal();
+  els.presRows.querySelector('.pres-row .pres-prop')?.focus();
+}
+
+function collectPresRows() {
+  return [...els.presRows.querySelectorAll('.pres-row')].map((row) => ({
+    prop: row.querySelector('.pres-prop').value.trim(),
+    person: row.querySelector('.pres-person').value.trim(),
+    start: row.querySelector('.pres-start').value,
+    end: row.querySelector('.pres-end').value,
+  }));
+}
+
+function presDetailHtml(r) {
+  if (r.status === 'MISMATCH') {
+    const cause = r.record
+      ? `导致记录：<a data-record-id="${esc(r.record.id)}" title="在右下记录表中定位">第${r.record.minute}分 ${esc(r.record.from)} → ${esc(r.record.to)}</a>`
+      : `此前无任何交接记录，道具一直在「${esc(state.warehouse)}」`;
+    return `第${r.minute}分钟（该分钟全部交接完成后）起实际持有人为「${esc(r.actualHolder)}」；${cause}`;
+  }
+  if (r.status === 'UNKNOWN') {
+    const typeText = r.conflictType === 'AMBIGUOUS' ? '多条可接续（交接链不唯一）' : '剩余记录无法接续（断链）';
+    const links = (r.conflictRecords || [])
+      .map((id) => `<a data-record-id="${esc(id)}" title="在右下记录表中定位">${shortId(id)}</a>`)
+      .join('、');
+    return `第${r.conflictMinute}分钟交接链冲突（${typeText}），该时段持有人无法判定；` +
+      `冲突后的记录不作为确定持有${links ? `。冲突记录：${links}` : ''}`;
+  }
+  return esc(r.note || '');
+}
+
+function renderPresenceResult(result) {
+  const s = result.summary;
+  const chips = [
+    [`共 ${s.total} 行`, ''],
+    [`到位 ${s.present}`, s.present > 0 ? 'chip-ok' : ''],
+    [`不符 ${s.mismatch}`, s.mismatch > 0 ? 'chip-bad' : ''],
+    [`无法判定 ${s.unknown}`, s.unknown > 0 ? 'chip-bad' : ''],
+    [`未登记 ${s.unregistered}`, s.unregistered > 0 ? 'chip-warn' : ''],
+  ];
+  els.presSummary.innerHTML = chips
+    .map(([text, cls]) => `<span class="inv-chip ${cls}">${text}</span>`)
+    .join('');
+
+  els.presBannerOk.classList.toggle('hidden', !s.allPresent);
+
+  els.presTableBody.innerHTML = result.rows.map((r) => {
+    const st = PRES_STATUS_TEXT[r.status];
+    return `
+      <tr class="pres-row-${r.status}">
+        <td class="cell-minute">${r.rowNo}</td>
+        <td><strong>${esc(r.prop)}</strong></td>
+        <td>${esc(r.person)}</td>
+        <td class="cell-minute">第${r.start}分 – 第${r.end}分前</td>
+        <td><span class="inv-badge ${st.cls}">${st.text}</span></td>
+        <td class="inv-note">${presDetailHtml(r)}</td>
+      </tr>`;
+  }).join('');
+
+  els.presPanel.classList.remove('hidden');
+  els.presPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function submitPresence() {
+  // 完全空白的行忽略；部分填写的行必须填齐
+  const rows = collectPresRows().filter((r) => r.prop || r.person || r.start !== '' || r.end !== '');
+  if (rows.length === 0) {
+    toast('请至少填写一行核对记录（道具 + 演员 + 起止分钟）', true);
+    return;
+  }
+  for (const r of rows) {
+    if (!r.prop || !r.person || r.start === '' || r.end === '') {
+      toast('每行的道具、演员、起始分钟、结束分钟都必须填写；完全空白的行请删除', true);
+      return;
+    }
+    const start = Number(r.start);
+    const end = Number(r.end);
+    if (!Number.isInteger(start) || start < 0 || !Number.isInteger(end) || end < 0) {
+      toast('起止分钟必须是不小于 0 的整数', true);
+      return;
+    }
+    if (start >= end) {
+      toast('起始分钟必须小于结束分钟（左闭右开区间）', true);
+      return;
+    }
+  }
+
+  try {
+    const result = await api('/api/presence/check', {
+      method: 'POST',
+      body: JSON.stringify({
+        rows: rows.map((r) => ({ prop: r.prop, person: r.person, start: Number(r.start), end: Number(r.end) })),
+      }),
+    });
+    els.presDialog.close();
+    renderPresenceResult(result);
+    toast('核对完成（结果仅本次有效，未改动交接记录）');
   } catch (err) {
     toast(err.message, true);
   }
